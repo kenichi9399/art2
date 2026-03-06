@@ -88,16 +88,16 @@
     //  RENDERER
     // ══════════════════════════════════════════════════════════════════════════
     const renderer = new THREE.WebGLRenderer({
-      antialias:        true,
-      powerPreference:  'high-performance',
+      antialias:       true,
+      powerPreference: 'high-performance',
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.toneMapping          = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure  = 1.15;
-    renderer.outputColorSpace     = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled    = true;
-    renderer.shadowMap.type       = THREE.PCFSoftShadowMap;
+    renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.outputColorSpace    = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled   = true;
+    renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
     document.body.prepend(renderer.domElement);
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -108,19 +108,20 @@
     scene.fog        = new THREE.FogExp2(0x050508, 0.055);
 
     const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 3.2, 10);
+    camera.position.set(0, 3.5, 10);
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  PROCEDURAL ENVIRONMENT MAP  (gives physical material something to reflect)
+    //  PROCEDURAL ENVIRONMENT MAP
+    //  A hand-painted violet sky used exclusively for IBL reflections on
+    //  physical materials (crystal facets, obsidian pedestal surface).
     // ══════════════════════════════════════════════════════════════════════════
     (() => {
       const W = 512, H = 256;
-      const cv  = document.createElement('canvas');
-      cv.width  = W;
-      cv.height = H;
-      const cx  = cv.getContext('2d');
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const cx = cv.getContext('2d');
 
-      // Deep violet-black base gradient
+      // Deep violet-black base
       const base = cx.createLinearGradient(0, 0, 0, H);
       base.addColorStop(0.0, '#1c0040');
       base.addColorStop(0.4, '#0a0020');
@@ -128,16 +129,23 @@
       cx.fillStyle = base;
       cx.fillRect(0, 0, W, H);
 
-      // Soft luminous zenith — the "distant light source" the crystal mirrors
+      // Zenith glow — the "infinity light source" crystal facets reflect
       const zenith = cx.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 0.85);
-      zenith.addColorStop(0, 'rgba(175, 65, 255, 0.38)');
+      zenith.addColorStop(0, 'rgba(178, 68, 255, 0.40)');
       zenith.addColorStop(1, 'rgba(0, 0, 0, 0)');
       cx.fillStyle = zenith;
       cx.fillRect(0, 0, W, H);
 
-      const envTex         = new THREE.CanvasTexture(cv);
-      envTex.mapping       = THREE.EquirectangularReflectionMapping;
-      envTex.colorSpace    = THREE.SRGBColorSpace;
+      // Faint horizon accent — gives pedestal a hint of distant purple
+      const horizon = cx.createLinearGradient(0, H * 0.75, 0, H);
+      horizon.addColorStop(0, 'rgba(0,0,0,0)');
+      horizon.addColorStop(1, 'rgba(60,0,120,0.20)');
+      cx.fillStyle = horizon;
+      cx.fillRect(0, 0, W, H);
+
+      const envTex      = new THREE.CanvasTexture(cv);
+      envTex.mapping    = THREE.EquirectangularReflectionMapping;
+      envTex.colorSpace = THREE.SRGBColorSpace;
 
       const pmrem = new THREE.PMREMGenerator(renderer);
       pmrem.compileEquirectangularShader();
@@ -150,95 +158,105 @@
     //  LIGHTS
     // ══════════════════════════════════════════════════════════════════════════
 
-    // Dim ambient — just enough to keep shadows from being absolute black
+    // Dim fill — prevents pure-black shadows, preserves cinematic contrast
     scene.add(new THREE.AmbientLight(0x080510, 0.9));
 
-    // Primary crystal inner glow — this is "Tomori", the breathing light
-    const crystalLight = new THREE.PointLight(0xb060ff, 6.5, 13, 1.8);
-    crystalLight.position.set(0, 2.3, 0);
-    crystalLight.castShadow           = true;
+    // PRIMARY LIGHT: inner crystal glow — "Tomori"
+    //   Parented to the cluster so it levitates with the crystal.
+    //   Intensity animated in the loop (breathing).
+    const crystalLight = new THREE.PointLight(0xb060ff, 7.0, 14, 1.8);
+    crystalLight.position.set(0, 1.8, 0);   // local to cluster group
+    crystalLight.castShadow         = true;
     crystalLight.shadow.mapSize.set(512, 512);
-    crystalLight.shadow.camera.near   = 0.1;
-    crystalLight.shadow.camera.far    = 12;
-    scene.add(crystalLight);
+    crystalLight.shadow.camera.near = 0.1;
+    crystalLight.shadow.camera.far  = 12;
+    // Will be added to cluster group after cluster is created
 
-    // Cool upper-left rim — gives crystal edge definition
-    const rimLight = new THREE.PointLight(0x5012b5, 1.5, 28, 2);
+    // Upper-left rim — cool edge definition, static
+    const rimLight = new THREE.PointLight(0x5012b5, 1.5, 30, 2);
     rimLight.position.set(-6, 9, -6);
     scene.add(rimLight);
 
-    // Faint warm horizon — creates gentle depth separation from bg
-    const depthLight = new THREE.PointLight(0x1a0525, 0.6, 35, 2);
+    // Faint depth light — separates background from floor
+    const depthLight = new THREE.PointLight(0x1a0525, 0.5, 40, 2);
     depthLight.position.set(10, 1, 5);
     scene.add(depthLight);
 
+    // Downward gallery spot — theatrical cone onto the pedestal (no shadows, perf-friendly)
+    const gallerySpot = new THREE.SpotLight(0x9040e0, 2.0, 22, Math.PI * 0.16, 0.5, 2);
+    gallerySpot.position.set(0, 14, 0);
+    gallerySpot.target.position.set(0, 0.6, 0);
+    scene.add(gallerySpot);
+    scene.add(gallerySpot.target);
+
     // ══════════════════════════════════════════════════════════════════════════
     //  AMETHYST MATERIAL  (MeshPhysicalMaterial — the heart of the piece)
+    //
+    //  transmission + ior → glass-like refraction bends light inside the crystal
+    //  clearcoat         → a second specular layer for the polished facet sheen
+    //  attenuationColor  → deep purple saturation accumulates with depth
     // ══════════════════════════════════════════════════════════════════════════
     const amethystMat = new THREE.MeshPhysicalMaterial({
-      color:               new THREE.Color(0x6A1EAA),   // deep amethyst body
-      emissive:            new THREE.Color(0x38007E),   // violet inner glow
+      color:               new THREE.Color(0x6A1EAA),
+      emissive:            new THREE.Color(0x38007E),
       emissiveIntensity:   0.38,
-      transmission:        0.83,                        // glass-like transparency
-      ior:                 1.68,                        // quartz refractive index
-      roughness:           0.03,                        // near-perfect facets
+      transmission:        0.83,
+      ior:                 1.68,
+      roughness:           0.03,
       metalness:           0.0,
-      thickness:           2.8,                         // attenuation depth
+      thickness:           2.8,
       attenuationColor:    new THREE.Color(0x7B2FC0),
       attenuationDistance: 2.0,
-      clearcoat:           0.55,                        // surface lacquer sheen
+      clearcoat:           0.55,
       clearcoatRoughness:  0.07,
       envMapIntensity:     1.7,
     });
 
     // ══════════════════════════════════════════════════════════════════════════
     //  CRYSTAL GEOMETRY FACTORY
-    //  Each spike = hexagonal prism body + pyramidal termination
+    //  Hexagonal prism body (CylinderGeometry, 6 sides) +
+    //  pyramidal termination (ConeGeometry, 6 sides) = realistic quartz spike
     // ══════════════════════════════════════════════════════════════════════════
     function makeCrystal(height, radius, sides = 6) {
-      const group  = new THREE.Group();
-      const bodyH  = height * 0.63;
-      const tipH   = height * 0.37;
+      const g     = new THREE.Group();
+      const bodyH = height * 0.63;
+      const tipH  = height * 0.37;
 
-      // Prismatic body — slightly tapered toward tip
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(radius * 0.86, radius, bodyH, sides, 1),
         amethystMat,
       );
       body.position.y = bodyH * 0.5;
       body.castShadow = true;
-      group.add(body);
+      g.add(body);
 
-      // Pyramidal termination
       const tip = new THREE.Mesh(
         new THREE.ConeGeometry(radius * 0.86, tipH, sides, 1),
         amethystMat,
       );
       tip.position.y = bodyH + tipH * 0.5;
       tip.castShadow = true;
-      group.add(tip);
+      g.add(tip);
 
-      return group;
+      return g;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  CRYSTAL CLUSTER  (7 spikes + dark matrix base)
+    //  CRYSTAL CLUSTER  (8 spikes of varying scale + raw matrix rock)
     // ══════════════════════════════════════════════════════════════════════════
     const cluster = new THREE.Group();
 
     // [height, radius,  px,    pz,   rotY°, tiltZ°, tiltX°]
-    const crystalDefs = [
-      [4.6,  0.46,   0.00,  0.00,   0,     2.5,   0.8],  // main — tallest, nearly vertical
-      [3.4,  0.36,   0.65,  0.16,  48,    11.5,   3.0],  // right cluster
-      [2.9,  0.30,  -0.58,  0.10, -32,   -10.5,   2.2],  // left cluster
-      [2.3,  0.24,   0.32, -0.52,  20,     6.5, -10.0],  // front-right small
-      [1.9,  0.20,  -0.30, -0.58, -24,    -5.0,  -8.5],  // front-left small
-      [1.45, 0.17,   0.92, -0.22,  70,    17.0,   4.5],  // far-right accent
-      [1.15, 0.14,  -0.92, -0.14, -64,   -16.0,   2.8],  // far-left accent
-      [0.90, 0.11,   0.10,  0.85,  12,     3.5,  15.0],  // rear tiny
-    ];
-
-    crystalDefs.forEach(([h, r, px, pz, ry, tz, tx]) => {
+    [
+      [4.6,  0.46,   0.00,  0.00,   0,     2.5,   0.8],
+      [3.4,  0.36,   0.65,  0.16,  48,    11.5,   3.0],
+      [2.9,  0.30,  -0.58,  0.10, -32,   -10.5,   2.2],
+      [2.3,  0.24,   0.32, -0.52,  20,     6.5, -10.0],
+      [1.9,  0.20,  -0.30, -0.58, -24,    -5.0,  -8.5],
+      [1.45, 0.17,   0.92, -0.22,  70,    17.0,   4.5],
+      [1.15, 0.14,  -0.92, -0.14, -64,   -16.0,   2.8],
+      [0.90, 0.11,   0.10,  0.85,  12,     3.5,  15.0],
+    ].forEach(([h, r, px, pz, ry, tz, tx]) => {
       const c = makeCrystal(h, r);
       c.position.set(px, 0, pz);
       c.rotation.y = THREE.MathUtils.degToRad(ry);
@@ -247,7 +265,7 @@
       cluster.add(c);
     });
 
-    // Rock/matrix base — dark rough mineral the crystals grow from
+    // Raw mineral matrix — the rough dark rock the spikes grow from
     const rockMesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.35, 9, 6),
       new THREE.MeshStandardMaterial({ color: 0x050210, roughness: 0.90, metalness: 0.04 }),
@@ -257,8 +275,83 @@
     rockMesh.receiveShadow = true;
     cluster.add(rockMesh);
 
-    cluster.position.set(0, 0.58, 0);
+    // The crystal light travels with the cluster (levitates together)
+    cluster.add(crystalLight);
+
+    // Elevated to rest on pedestal top (y≈0.60). Float amplitude ±0.065
+    // ensures the rock base never clips into the pedestal surface.
+    cluster.position.set(0, 1.25, 0);
     scene.add(cluster);
+
+    // ══════════════════════════════════════════════════════════════════════════
+    //  OBSIDIAN PEDESTAL  (NEW)
+    //
+    //  3-tier stacked cylinder architecture:
+    //    Tier 1 — base plinth  (widest, shallowest)
+    //    Tier 2 — middle shaft  (tapered frustum)
+    //    Tier 3 — top cap       (narrowest, thinnest — the "stage" for crystal)
+    //
+    //  Material: MeshPhysicalMaterial with clearcoat = 1.0 → near-mirror surface
+    //  that reflects both the environment map and the crystal's point light.
+    // ══════════════════════════════════════════════════════════════════════════
+    const pedestalMat = new THREE.MeshPhysicalMaterial({
+      color:              new THREE.Color(0x02010c),  // blackest obsidian, faint blue
+      roughness:          0.04,                        // near-mirror base layer
+      metalness:          0.0,                         // obsidian is vitreous, not metallic
+      clearcoat:          1.0,                         // full clearcoat — the glassy sheen
+      clearcoatRoughness: 0.02,                        // almost perfectly specular
+      reflectivity:       1.0,
+      envMapIntensity:    2.8,                         // boost env reflection for drama
+    });
+
+    const pedestalGroup = new THREE.Group();
+
+    // Tier 1 — base plinth: top at y = 0.20
+    const tier1 = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.55, 1.75, 0.20, 48, 1),
+      pedestalMat,
+    );
+    tier1.position.y = 0.10;
+    tier1.receiveShadow = true;
+    pedestalGroup.add(tier1);
+
+    // Tier 2 — middle shaft: bottom at y = 0.20, top at y = 0.52
+    const tier2 = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.90, 1.40, 0.32, 48, 1),
+      pedestalMat,
+    );
+    tier2.position.y = 0.36;
+    tier2.receiveShadow = true;
+    pedestalGroup.add(tier2);
+
+    // Tier 3 — top cap: bottom at y = 0.52, top at y = 0.60
+    const tier3 = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.02, 0.90, 0.08, 48, 1),
+      pedestalMat,
+    );
+    tier3.position.y = 0.56;
+    tier3.receiveShadow = true;
+    pedestalGroup.add(tier3);
+
+    scene.add(pedestalGroup);
+
+    // Glow corona ring at the pedestal's top edge —
+    // a breath of light seeping from the crystal down onto the stone
+    const coronaMat = new THREE.MeshBasicMaterial({
+      color:       0x7020b8,
+      transparent: true,
+      opacity:     0.0,          // driven by breathing animation
+      blending:    THREE.AdditiveBlending,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+    });
+    const coronaDisc = new THREE.Mesh(
+      new THREE.RingGeometry(0.88, 1.06, 64),
+      coronaMat,
+    );
+    coronaDisc.rotation.x = -Math.PI / 2;
+    coronaDisc.position.y  = 0.612;         // fractionally above top surface
+    scene.add(coronaDisc);
 
     // ══════════════════════════════════════════════════════════════════════════
     //  OBSIDIAN FLOOR
@@ -266,10 +359,10 @@
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(80, 80),
       new THREE.MeshStandardMaterial({
-        color:          new THREE.Color(0x040207),
-        roughness:      0.04,
-        metalness:      0.96,
-        envMapIntensity:0.75,
+        color:           new THREE.Color(0x040207),
+        roughness:       0.04,
+        metalness:       0.96,
+        envMapIntensity: 0.75,
       }),
     );
     floor.rotation.x = -Math.PI / 2;
@@ -277,36 +370,85 @@
     scene.add(floor);
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  FLOATING DUST PARTICLES
+    //  PARTICLE SYSTEM  (NEW — organic two-population field)
+    //
+    //  Population A (40%): "embers" — dense, brighter, close to the crystal.
+    //    These represent life force — the sparks of existence rising from stone.
+    //    Faster rise, subtle sway.
+    //
+    //  Population B (60%): "dust" — sparse, dimmer, ambient outer field.
+    //    These represent the silence beyond — slow drift, wider sway.
+    //
+    //  Per-particle data drives independent sine-wave sway on x/z axes,
+    //  giving each mote its own personality in the invisible current.
     // ══════════════════════════════════════════════════════════════════════════
-    const PARTICLE_COUNT = 620;
-    const pArr = new Float32Array(PARTICLE_COUNT * 3);
-    const pVel = new Float32Array(PARTICLE_COUNT);
+    const PARTICLE_COUNT = 520;
+    const EMBER_COUNT    = Math.floor(PARTICLE_COUNT * 0.38);  // 38% embers
+
+    const pArr   = new Float32Array(PARTICLE_COUNT * 3);  // positions
+    const pCol   = new Float32Array(PARTICLE_COUNT * 3);  // vertex colours
+    const pOriX  = new Float32Array(PARTICLE_COUNT);      // sway origin X
+    const pOriZ  = new Float32Array(PARTICLE_COUNT);      // sway origin Z
+    const pVel   = new Float32Array(PARTICLE_COUNT);      // rise speed
+    const pPhase = new Float32Array(PARTICLE_COUNT);      // sway phase offset
+    const pFreq  = new Float32Array(PARTICLE_COUNT);      // sway frequency
+    const pAmp   = new Float32Array(PARTICLE_COUNT);      // sway amplitude
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const angle    = Math.random() * Math.PI * 2;
-      const dist     = 1.2 + Math.random() * 11;
-      pArr[i * 3]    = Math.cos(angle) * dist;
-      pArr[i * 3 + 1]= Math.random() * 13 - 1.5;
-      pArr[i * 3 + 2]= Math.sin(angle) * dist;
-      pVel[i]        = 0.00035 + Math.random() * 0.00085;
+      const isEmber = i < EMBER_COUNT;
+      const angle   = Math.random() * Math.PI * 2;
+      const dist    = isEmber
+        ? 0.4 + Math.random() * 3.5          // embers: tight halo 0.4–3.9 r
+        : 3.5 + Math.random() * 8.5;         // dust:   wide field  3.5–12 r
+
+      const ox = Math.cos(angle) * dist;
+      const oz = Math.sin(angle) * dist;
+
+      pArr[i * 3]     = ox;
+      pArr[i * 3 + 1] = Math.random() * 13 - 1.5;
+      pArr[i * 3 + 2] = oz;
+
+      pOriX[i]  = ox;
+      pOriZ[i]  = oz;
+      pVel[i]   = isEmber
+        ? 0.00070 + Math.random() * 0.00130  // embers rise faster
+        : 0.00025 + Math.random() * 0.00065; // dust drifts slowly
+
+      pPhase[i] = Math.random() * Math.PI * 2;
+      pFreq[i]  = 0.18 + Math.random() * 0.48;
+      pAmp[i]   = isEmber
+        ? 0.04 + Math.random() * 0.18        // embers: tight organic wobble
+        : 0.12 + Math.random() * 0.55;       // dust:   wide wind-like sway
+
+      // Vertex colour — embers: bright violet-white; dust: dim purple
+      if (isEmber) {
+        pCol[i * 3]     = 0.72;   // r
+        pCol[i * 3 + 1] = 0.28;   // g
+        pCol[i * 3 + 2] = 1.00;   // b  → vivid violet
+      } else {
+        pCol[i * 3]     = 0.38;
+        pCol[i * 3 + 1] = 0.08;
+        pCol[i * 3 + 2] = 0.65;   // → muted purple
+      }
     }
 
     const pGeo = new THREE.BufferGeometry();
-    pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pArr,  3));
+    pGeo.setAttribute('color',    new THREE.BufferAttribute(pCol,  3));
 
     const dust = new THREE.Points(pGeo, new THREE.PointsMaterial({
-      color:       0x9945e8,
-      size:        0.020,
-      transparent: true,
-      opacity:     0.48,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
+      vertexColors: true,
+      size:         0.022,
+      transparent:  true,
+      opacity:      0.52,
+      blending:     THREE.AdditiveBlending,
+      depthWrite:   false,
+      sizeAttenuation: true,
     }));
     scene.add(dust);
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  FLOOR HALO RINGS  (subtle radiant rings on obsidian surface)
+    //  FLOOR HALO RINGS  (radiant circles on obsidian — energy spreading out)
     // ══════════════════════════════════════════════════════════════════════════
     [3.1, 5.6, 8.2].forEach((r, i) => {
       const ring = new THREE.Mesh(
@@ -325,33 +467,41 @@
     });
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  ORBIT CONTROLS  — serene, restricted exploration
+    //  ORBIT CONTROLS
     // ══════════════════════════════════════════════════════════════════════════
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 2.0, 0);
-    controls.enableDamping    = true;
-    controls.dampingFactor    = 0.040;
-    controls.enablePan        = false;         // no panning — crystal stays centred
-    controls.minDistance      = 3.5;
-    controls.maxDistance      = 20;
-    controls.minPolarAngle    = Math.PI * 0.07;  // prevent looking straight down
-    controls.maxPolarAngle    = Math.PI * 0.76;  // prevent going below floor
-    controls.rotateSpeed      = 0.24;            // slow, deliberate rotation
-    controls.zoomSpeed        = 0.38;
-    controls.autoRotate       = true;
-    controls.autoRotateSpeed  = 0.22;            // gentle perpetual orbit
+    controls.target.set(0, 2.2, 0);
+    controls.enableDamping   = true;
+    controls.dampingFactor   = 0.040;
+    controls.enablePan       = false;
+    controls.minDistance     = 3.5;
+    controls.maxDistance     = 20;
+    controls.minPolarAngle   = Math.PI * 0.07;
+    controls.maxPolarAngle   = Math.PI * 0.76;
+    controls.rotateSpeed     = 0.24;
+    controls.zoomSpeed       = 0.38;
+    controls.autoRotate      = true;
+    controls.autoRotateSpeed = 0.22;
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  POST-PROCESSING  — bloom for the luminous glow aura
+    //  POST-PROCESSING  — UnrealBloomPass calibration
+    //
+    //  Goal: the crystal's transmitted light "bleeds" into the surrounding fog
+    //  in a way that evokes a lantern glimpsed through dense night mist.
+    //  Not an explosion of light — a quiet, cinematic seep.
+    //
+    //  threshold: 0.08  → catches the faint emissive glow in addition to hot spots
+    //  radius:    0.72  → wide, soft diffusion (fog-like scatter)
+    //  strength:  0.40→1.05 (animated with breathing)
     // ══════════════════════════════════════════════════════════════════════════
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
 
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.85,   // strength
-      0.58,   // radius
-      0.10,   // threshold — only the bright crystal/light blooms
+      0.72,   // strength (start value; overridden each frame)
+      0.72,   // radius   — generous soft scatter
+      0.08,   // threshold — includes the quiet emissive glow
     );
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
@@ -368,7 +518,7 @@
     });
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  ANIMATION LOOP — the soul of "Tomori"
+    //  ANIMATION LOOP — the living pulse of "Tomori"
     // ══════════════════════════════════════════════════════════════════════════
     const clock = new THREE.Clock();
 
@@ -376,35 +526,63 @@
       requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
 
-      // ── Organic breathing: two independent sine waves overlapped
-      //    Primary  ~4.2s period — the main inhalation/exhalation
-      //    Secondary ~8.7s period — a deeper, slower undercurrent
-      const b1      = (Math.sin(t * 0.478) + 1) * 0.5;          // 0 → 1
-      const b2      = (Math.sin(t * 0.228 + 1.1) + 1) * 0.5;   // 0 → 1, offset phase
-      const breathe = b1 * 0.68 + b2 * 0.32;                    // weighted blend → 0 → 1
+      // ── Organic breathing rhythm ──────────────────────────────────────────
+      //  Two overlapping sine waves produce a breath that never feels mechanical:
+      //  b1 (~4.2s) = the primary inhalation/exhalation cycle
+      //  b2 (~8.7s) = a slower undercurrent — the deeper pulse of stone
+      const b1      = (Math.sin(t * 0.478) + 1) * 0.5;
+      const b2      = (Math.sin(t * 0.228 + 1.1) + 1) * 0.5;
+      const breathe = b1 * 0.68 + b2 * 0.32;            // 0 → 1
 
-      // ── Crystal inner light: intensity + slow hue drift (violet ↔ indigo-purple)
+      // ── Crystal inner light ───────────────────────────────────────────────
       crystalLight.intensity = 2.2 + breathe * 7.5;
+      // Slow hue drift: deep violet → indigo-purple and back (~70s full cycle)
       crystalLight.color.setHSL(
-        0.76 + Math.sin(t * 0.087) * 0.042,   // hue oscillates gently
+        0.76 + Math.sin(t * 0.087) * 0.042,
         0.95,
         0.64,
       );
 
-      // ── Emissive self-illumination pulse
-      amethystMat.emissiveIntensity = 0.10 + breathe * 0.60;
+      // ── Material self-illumination ────────────────────────────────────────
+      amethystMat.emissiveIntensity = 0.10 + breathe * 0.62;
 
-      // ── Bloom breathes in sync — glow expands on exhalation
-      bloom.strength = 0.50 + breathe * 0.65;
+      // ── Bloom: cinematic glow seep synced to breathing ────────────────────
+      //   At rest (breathe=0): strength 0.40 — quiet, barely-there haze
+      //   At peak (breathe=1): strength 1.05 — luminous bloom fills the fog
+      bloom.strength = 0.40 + breathe * 0.65;
 
-      // ── Cluster gently floats (slow vertical sine, different period)
-      cluster.position.y = 0.58 + Math.sin(t * 0.310) * 0.072;
+      // ── Cluster levitation ────────────────────────────────────────────────
+      //   Different period (0.310) from breathing to prevent lockstep feeling
+      cluster.position.y = 1.25 + Math.sin(t * 0.310) * 0.065;
 
-      // ── Dust rises slowly, wraps at ceiling
+      // ── Pedestal corona — breathing ring at the crystal's base ───────────
+      coronaMat.opacity = 0.015 + breathe * 0.095;
+
+      // ── Particle field: rise + organic sway ──────────────────────────────
+      //   Each particle oscillates on x/z via its own phase and frequency,
+      //   giving the field a wind-swept, living quality.
       const posArr = pGeo.attributes.position.array;
       for (let i = 0; i < PARTICLE_COUNT; i++) {
-        posArr[i * 3 + 1] += pVel[i];
-        if (posArr[i * 3 + 1] > 11) posArr[i * 3 + 1] = -1.5;
+        const base3 = i * 3;
+
+        // Two-axis sway: x and z use different frequency ratios to avoid
+        // the field moving in lockstep (0.73× ratio = pleasantly irrational)
+        posArr[base3]     = pOriX[i]
+          + Math.sin(t * pFreq[i] + pPhase[i]) * pAmp[i];
+        posArr[base3 + 2] = pOriZ[i]
+          + Math.cos(t * pFreq[i] * 0.73 + pPhase[i] + 1.8) * pAmp[i] * 0.65;
+
+        // Rise; wrap back to just below ground when out of frame
+        posArr[base3 + 1] += pVel[i];
+        if (posArr[base3 + 1] > 11) {
+          posArr[base3 + 1] = -1.5;
+          // Slightly shift the sway origin on reset → the field slowly evolves
+          const a = Math.random() * Math.PI * 2;
+          const d = Math.hypot(pOriX[i], pOriZ[i]);
+          const nd = d * (0.82 + Math.random() * 0.36);
+          pOriX[i] = Math.cos(a) * nd;
+          pOriZ[i] = Math.sin(a) * nd;
+        }
       }
       pGeo.attributes.position.needsUpdate = true;
 
