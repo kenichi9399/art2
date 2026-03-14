@@ -6,9 +6,13 @@
   <title>灯 — Tomori · Amethyst Experience</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #050508; overflow: hidden; cursor: grab; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden; cursor: grab;
+      background: radial-gradient(ellipse at 50% 30%, #2a0060 0%, #120030 40%, #05000f 100%);
+    }
     body:active { cursor: grabbing; }
     canvas { display: block; }
+
     #ui {
       position: fixed; inset: 0; pointer-events: none;
       display: flex; flex-direction: column; align-items: center;
@@ -18,22 +22,44 @@
     .title-ja {
       font-family: 'Hiragino Mincho ProN','YuMincho','Yu Mincho','MS Mincho','Noto Serif JP',serif;
       font-size: 16px; font-weight: 300; letter-spacing: .70em;
-      color: rgba(210,150,255,.52); margin-bottom: 10px;
+      color: rgba(210,150,255,.72); margin-bottom: 10px;
+      text-shadow: 0 0 20px rgba(180,80,255,0.5);
     }
     .title-en {
       font-family: 'Georgia','Times New Roman',serif;
       font-size: 9px; font-weight: 400; letter-spacing: .60em;
-      color: rgba(155,90,225,.25); text-transform: uppercase;
+      color: rgba(175,110,245,.45); text-transform: uppercase;
     }
     .hint {
       font-family: 'Georgia',serif; font-size: 9px; letter-spacing: .50em;
-      color: rgba(130,70,200,.18); text-transform: uppercase;
+      color: rgba(150,90,220,.32); text-transform: uppercase;
       opacity: 0; animation: rise 3s ease-out 5s forwards;
     }
     @keyframes rise { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+    /* Fallback shown if WebGL fails entirely */
+    #fallback {
+      display: none; position: fixed; inset: 0;
+      background: radial-gradient(ellipse at 50% 40%, #3a0080 0%, #1a0040 50%, #06000f 100%);
+    }
+    #fallback .crystal-css {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%);
+      width: 60px; height: 120px;
+      background: linear-gradient(160deg, rgba(200,120,255,0.9), rgba(100,20,200,0.7));
+      clip-path: polygon(50% 0%, 90% 20%, 100% 70%, 50% 100%, 0% 70%, 10% 20%);
+      animation: glowPulse 3s ease-in-out infinite;
+      filter: drop-shadow(0 0 20px rgba(160,80,255,0.8)) drop-shadow(0 0 60px rgba(120,40,220,0.5));
+    }
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.8; transform: translate(-50%, -60%) scaleY(1); filter: drop-shadow(0 0 20px rgba(160,80,255,0.8)) drop-shadow(0 0 60px rgba(120,40,220,0.5)); }
+      50% { opacity: 1; transform: translate(-50%, -62%) scaleY(1.03); filter: drop-shadow(0 0 35px rgba(200,100,255,1.0)) drop-shadow(0 0 80px rgba(160,60,240,0.8)); }
+    }
   </style>
 </head>
 <body>
+  <!-- CSS fallback crystal shown if WebGL fails -->
+  <div id="fallback"><div class="crystal-css"></div></div>
+
   <div id="ui">
     <div class="title-wrap">
       <div class="title-ja">灯 — Tomori</div>
@@ -42,30 +68,80 @@
     <div class="hint">drag to explore &nbsp;·&nbsp; scroll to zoom</div>
   </div>
 
+  <script>
+    // ── Global error guard: if WebGL/module loading fails, show CSS fallback ──
+    window.__webglFailed = false;
+    window.addEventListener('error', function(e) {
+      if (!window.__webglOk) {
+        document.getElementById('fallback').style.display = 'block';
+      }
+    });
+    // Mark success after first frame renders
+    window.__markWebGLOk = function() {
+      window.__webglOk = true;
+      document.getElementById('fallback').style.display = 'none';
+    };
+  </script>
+
   <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
-    import { OrbitControls }   from 'https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js';
-    import { EffectComposer }  from 'https://unpkg.com/three@0.158.0/examples/jsm/postprocessing/EffectComposer.js';
-    import { RenderPass }      from 'https://unpkg.com/three@0.158.0/examples/jsm/postprocessing/RenderPass.js';
-    import { UnrealBloomPass } from 'https://unpkg.com/three@0.158.0/examples/jsm/postprocessing/UnrealBloomPass.js';
-    import { OutputPass }      from 'https://unpkg.com/three@0.158.0/examples/jsm/postprocessing/OutputPass.js';
+    // ── Reliable CDN with version-pinned fallback ─────────────────────────────
+    // jsdelivr is more stable on mobile networks than unpkg
+    const BASE = 'https://cdn.jsdelivr.net/npm/three@0.158.0';
+
+    let THREE, OrbitControls, EffectComposer, RenderPass, UnrealBloomPass, OutputPass;
+
+    try {
+      const [threeM, orbitM, compM, renderM, bloomM, outputM] = await Promise.all([
+        import(`${BASE}/build/three.module.js`),
+        import(`${BASE}/examples/jsm/controls/OrbitControls.js`),
+        import(`${BASE}/examples/jsm/postprocessing/EffectComposer.js`),
+        import(`${BASE}/examples/jsm/postprocessing/RenderPass.js`),
+        import(`${BASE}/examples/jsm/postprocessing/UnrealBloomPass.js`),
+        import(`${BASE}/examples/jsm/postprocessing/OutputPass.js`),
+      ]);
+      THREE = threeM;
+      OrbitControls   = orbitM.OrbitControls;
+      EffectComposer  = compM.EffectComposer;
+      RenderPass      = renderM.RenderPass;
+      UnrealBloomPass = bloomM.UnrealBloomPass;
+      OutputPass      = outputM.OutputPass;
+    } catch (importErr) {
+      // CDN failed — show CSS fallback
+      document.getElementById('fallback').style.display = 'block';
+      console.error('Three.js import failed:', importErr);
+      // eslint-disable-next-line no-throw-literal
+      throw importErr;
+    }
 
     // ── Device detection ──────────────────────────────────────────────────────
     const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
                   || window.innerWidth < 800;
+
+    // ── WebGL support check ───────────────────────────────────────────────────
+    function hasWebGL() {
+      try {
+        const c = document.createElement('canvas');
+        return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
+      } catch(e) { return false; }
+    }
+    if (!hasWebGL()) {
+      document.getElementById('fallback').style.display = 'block';
+      throw new Error('WebGL not supported');
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     //  RENDERER
     // ══════════════════════════════════════════════════════════════════════════
     const renderer = new THREE.WebGLRenderer({
       antialias:       !isMobile,
-      powerPreference: 'high-performance',
+      powerPreference: isMobile ? 'default' : 'high-performance',
+      alpha:           false,
     });
-    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio, 1.5)
+    renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio, 2)
                                     : Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.toneMapping         = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = isMobile ? 2.2 : 1.15;
+    renderer.toneMappingExposure = isMobile ? 3.5 : 1.15;   // ↑ much brighter on mobile
     renderer.outputColorSpace    = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled   = !isMobile;
     renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
@@ -75,14 +151,15 @@
     //  SCENE & CAMERA
     // ══════════════════════════════════════════════════════════════════════════
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050508);
-    scene.fog        = new THREE.FogExp2(0x050508, 0.045);
+    // Mobile: slightly lighter scene bg so crystals are visible even at low brightness
+    scene.background = new THREE.Color(isMobile ? 0x0a0318 : 0x050508);
+    scene.fog        = new THREE.FogExp2(isMobile ? 0x0a0318 : 0x050508, isMobile ? 0.025 : 0.045);
 
     const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position.set(0, 3.5, 10);
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  ENVIRONMENT MAP  (desktop only — PMREMGenerator can fail on mobile)
+    //  ENVIRONMENT MAP  (desktop only)
     // ══════════════════════════════════════════════════════════════════════════
     if (!isMobile) {
       const W = 512, H = 256;
@@ -94,62 +171,69 @@
       base.addColorStop(0.4, '#0a0020');
       base.addColorStop(1.0, '#020008');
       cx.fillStyle = base; cx.fillRect(0, 0, W, H);
-      const zenith = cx.createRadialGradient(W/2,0,0,W/2,0,H*0.85);
+      const zenith = cx.createRadialGradient(W/2, 0, 0, W/2, 0, H * 0.85);
       zenith.addColorStop(0, 'rgba(178,68,255,0.42)');
       zenith.addColorStop(1, 'rgba(0,0,0,0)');
       cx.fillStyle = zenith; cx.fillRect(0, 0, W, H);
       const envTex      = new THREE.CanvasTexture(cv);
       envTex.mapping    = THREE.EquirectangularReflectionMapping;
       envTex.colorSpace = THREE.SRGBColorSpace;
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      pmrem.compileEquirectangularShader();
-      scene.environment = pmrem.fromEquirectangular(envTex).texture;
-      pmrem.dispose(); envTex.dispose();
+      try {
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        pmrem.compileEquirectangularShader();
+        scene.environment = pmrem.fromEquirectangular(envTex).texture;
+        pmrem.dispose(); envTex.dispose();
+      } catch(e) { /* skip env map if it fails */ }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     //  LIGHTS
-    //  Mobile: bright, simple, guaranteed-to-work setup
-    //  Desktop: cinematic, subtle setup
     // ══════════════════════════════════════════════════════════════════════════
     if (isMobile) {
-      // Strong ambient so nothing is ever black
-      scene.add(new THREE.AmbientLight(0x7744aa, 4.0));
+      // Very strong ambient — ensures nothing is ever black on mobile
+      scene.add(new THREE.AmbientLight(0x9966cc, 6.0));
 
-      // Main crystal glow — very bright, close range
-      const ml = new THREE.PointLight(0xcc88ff, 20, 18, 1.5);
-      ml.position.set(0, 4.5, 0);
+      // Main overhead light — very bright purple-white
+      const ml = new THREE.PointLight(0xdd99ff, 35, 20, 1.2);
+      ml.position.set(0, 5, 2);
       scene.add(ml);
 
-      // Fill from front-left
-      const fl = new THREE.PointLight(0x9955dd, 8, 25, 2);
-      fl.position.set(-4, 6, 5);
+      // Front fill — illuminates facing faces
+      const fl = new THREE.PointLight(0xbb77ff, 18, 22, 1.5);
+      fl.position.set(0, 4, 8);
       scene.add(fl);
 
-      // Underlight to illuminate pedestal
-      const ul = new THREE.PointLight(0x6633bb, 5, 10, 2);
-      ul.position.set(0, 1.5, 0);
+      // Side fill left
+      const sl = new THREE.PointLight(0xaa55ee, 12, 18, 1.8);
+      sl.position.set(-5, 5, 3);
+      scene.add(sl);
+
+      // Side fill right
+      const sr = new THREE.PointLight(0xcc88ff, 12, 18, 1.8);
+      sr.position.set(5, 5, 3);
+      scene.add(sr);
+
+      // Under glow — lights the bottom of crystals
+      const ul = new THREE.PointLight(0x8844dd, 10, 12, 1.5);
+      ul.position.set(0, 0, 0);
       scene.add(ul);
     } else {
       scene.add(new THREE.AmbientLight(0x080510, 0.9));
-
       const rimLight = new THREE.PointLight(0x5012b5, 1.5, 30, 2);
       rimLight.position.set(-6, 9, -6);
       scene.add(rimLight);
-
       const depthLight = new THREE.PointLight(0x1a0525, 0.5, 40, 2);
       depthLight.position.set(10, 1, 5);
       scene.add(depthLight);
-
       const gallerySpot = new THREE.SpotLight(0x9040e0, 2.0, 22, Math.PI * 0.16, 0.5, 2);
       gallerySpot.position.set(0, 14, 0);
       gallerySpot.target.position.set(0, 0.6, 0);
       scene.add(gallerySpot, gallerySpot.target);
     }
 
-    // Breathing crystal light — added to cluster group after cluster is built
-    const crystalLight = new THREE.PointLight(0xb060ff, isMobile ? 12 : 7, 14, 1.8);
-    crystalLight.position.set(0, 1.8, 0);
+    // Breathing crystal light
+    const crystalLight = new THREE.PointLight(0xcc88ff, isMobile ? 20 : 7, 14, 1.5);
+    crystalLight.position.set(0, 2.5, 0);
     if (!isMobile) {
       crystalLight.castShadow = true;
       crystalLight.shadow.mapSize.set(512, 512);
@@ -159,20 +243,18 @@
 
     // ══════════════════════════════════════════════════════════════════════════
     //  MATERIALS
-    //  Mobile: MeshPhongMaterial — universally supported on all WebGL devices.
-    //          MeshPhysicalMaterial (clearcoat, transmission) can silently fail
-    //          on iOS/Android GPUs and render as solid black.
-    //  Desktop: full MeshPhysicalMaterial pipeline.
+    //  Mobile: MeshPhongMaterial — universally supported, visible on all GPUs
+    //  Desktop: full MeshPhysicalMaterial pipeline
     // ══════════════════════════════════════════════════════════════════════════
     const amethystMat = isMobile
       ? new THREE.MeshPhongMaterial({
-          color:             new THREE.Color(0xa050ee),
-          emissive:          new THREE.Color(0x6600cc),
-          emissiveIntensity: 1.4,
-          specular:          new THREE.Color(0xeeccff),
-          shininess:         140,
+          color:             new THREE.Color(0xb060ff),   // brighter purple
+          emissive:          new THREE.Color(0x8820ee),   // strong glow
+          emissiveIntensity: 2.0,                          // ↑ more emissive
+          specular:          new THREE.Color(0xffffff),
+          shininess:         200,
           transparent:       true,
-          opacity:           0.88,
+          opacity:           0.92,
           side:              THREE.DoubleSide,
         })
       : new THREE.MeshPhysicalMaterial({
@@ -193,9 +275,9 @@
 
     const pedestalMat = isMobile
       ? new THREE.MeshPhongMaterial({
-          color:     new THREE.Color(0x060312),
-          specular:  new THREE.Color(0x8855cc),
-          shininess: 220,
+          color:     new THREE.Color(0x0d0420),
+          specular:  new THREE.Color(0xaa77ff),
+          shininess: 280,
         })
       : new THREE.MeshPhysicalMaterial({
           color:              new THREE.Color(0x02010c),
@@ -208,7 +290,7 @@
         });
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  CRYSTAL GEOMETRY FACTORY
+    //  CRYSTAL GEOMETRY
     // ══════════════════════════════════════════════════════════════════════════
     function makeCrystal(height, radius, sides = 6) {
       const g = new THREE.Group();
@@ -242,12 +324,16 @@
     ].forEach(([h, r, px, pz, ry, tz, tx]) => {
       const c = makeCrystal(h, r);
       c.position.set(px, 0, pz);
-      c.rotation.set(THREE.MathUtils.degToRad(tx), THREE.MathUtils.degToRad(ry), THREE.MathUtils.degToRad(tz));
+      c.rotation.set(
+        THREE.MathUtils.degToRad(tx),
+        THREE.MathUtils.degToRad(ry),
+        THREE.MathUtils.degToRad(tz),
+      );
       cluster.add(c);
     });
 
     const rockMat = isMobile
-      ? new THREE.MeshPhongMaterial({ color: 0x050210, shininess: 5 })
+      ? new THREE.MeshPhongMaterial({ color: 0x0f062a, emissive: 0x200050, emissiveIntensity: 0.4, shininess: 30 })
       : new THREE.MeshStandardMaterial({ color: 0x050210, roughness: 0.90, metalness: 0.04 });
 
     const rockMesh = new THREE.Mesh(new THREE.SphereGeometry(1.35, 9, 6), rockMat);
@@ -259,7 +345,7 @@
     scene.add(cluster);
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  OBSIDIAN PEDESTAL
+    //  PEDESTAL
     // ══════════════════════════════════════════════════════════════════════════
     const pedestalGroup = new THREE.Group();
     [[1.55,1.75,0.20,0.10],[0.90,1.40,0.32,0.36],[1.02,0.90,0.08,0.56]]
@@ -271,10 +357,10 @@
       });
     scene.add(pedestalGroup);
 
-    // Corona ring (mobile: always faintly visible; desktop: breathing)
+    // Corona ring
     const coronaMat = new THREE.MeshBasicMaterial({
-      color: 0x8030cc, transparent: true,
-      opacity: isMobile ? 0.25 : 0.0,
+      color: 0xaa55ff, transparent: true,
+      opacity: isMobile ? 0.45 : 0.0,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
     });
     const coronaDisc = new THREE.Mesh(new THREE.RingGeometry(0.88, 1.06, 64), coronaMat);
@@ -286,7 +372,7 @@
     //  FLOOR
     // ══════════════════════════════════════════════════════════════════════════
     const floorMat = isMobile
-      ? new THREE.MeshPhongMaterial({ color: 0x040207, specular: 0x220044, shininess: 180 })
+      ? new THREE.MeshPhongMaterial({ color: 0x08031a, emissive: 0x180040, emissiveIntensity: 0.3, specular: 0x6633aa, shininess: 220 })
       : new THREE.MeshStandardMaterial({ color: 0x040207, roughness: 0.04, metalness: 0.96, envMapIntensity: 0.75 });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), floorMat);
     floor.rotation.x = -Math.PI / 2;
@@ -296,7 +382,7 @@
     // ══════════════════════════════════════════════════════════════════════════
     //  PARTICLES
     // ══════════════════════════════════════════════════════════════════════════
-    const PARTICLE_COUNT = isMobile ? 280 : 520;
+    const PARTICLE_COUNT = isMobile ? 300 : 520;
     const EMBER_COUNT    = Math.floor(PARTICLE_COUNT * 0.38);
     const pArr   = new Float32Array(PARTICLE_COUNT * 3);
     const pCol   = new Float32Array(PARTICLE_COUNT * 3);
@@ -318,16 +404,16 @@
       pPhase[i] = Math.random() * Math.PI * 2;
       pFreq[i]  = 0.18 + Math.random() * 0.48;
       pAmp[i]   = isEmber ? 0.04 + Math.random() * 0.18 : 0.12 + Math.random() * 0.55;
-      pCol[i*3]   = isEmber ? 0.80 : 0.45;
-      pCol[i*3+1] = isEmber ? 0.32 : 0.10;
-      pCol[i*3+2] = isEmber ? 1.00 : 0.72;
+      pCol[i*3]   = isEmber ? 0.85 : 0.55;
+      pCol[i*3+1] = isEmber ? 0.38 : 0.15;
+      pCol[i*3+2] = isEmber ? 1.00 : 0.88;
     }
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
     pGeo.setAttribute('color',    new THREE.BufferAttribute(pCol, 3));
     scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({
-      vertexColors: true, size: isMobile ? 0.035 : 0.022,
-      transparent: true, opacity: isMobile ? 0.75 : 0.52,
+      vertexColors: true, size: isMobile ? 0.055 : 0.022,
+      transparent: true, opacity: isMobile ? 0.92 : 0.52,
       blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
     })));
 
@@ -336,10 +422,10 @@
     // ══════════════════════════════════════════════════════════════════════════
     [3.1, 5.6, 8.2].forEach((r, i) => {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(r, 0.011, 6, 128),
+        new THREE.TorusGeometry(r, 0.012, 6, 128),
         new THREE.MeshBasicMaterial({
-          color: 0x6012b0, transparent: true,
-          opacity: isMobile ? (0.12 - i * 0.03) : (0.045 - i * 0.012),
+          color: 0x9933ee, transparent: true,
+          opacity: isMobile ? (0.22 - i * 0.05) : (0.045 - i * 0.012),
           blending: THREE.AdditiveBlending, depthWrite: false,
         }),
       );
@@ -363,11 +449,10 @@
     controls.autoRotate      = true;  controls.autoRotateSpeed = 0.22;
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  POST-PROCESSING  (desktop only)
-    //  Mobile uses renderer.render() directly — guaranteed to work everywhere.
+    //  POST-PROCESSING (desktop only)
     // ══════════════════════════════════════════════════════════════════════════
     let bloom = null;
-    let renderScene = () => renderer.render(scene, camera);  // default fallback
+    let renderScene = () => renderer.render(scene, camera);
 
     if (!isMobile) {
       try {
@@ -381,9 +466,7 @@
         composer.addPass(new OutputPass());
         window.addEventListener('resize', () => composer.setSize(window.innerWidth, window.innerHeight));
         renderScene = () => composer.render();
-      } catch (e) {
-        // keep direct render fallback
-      }
+      } catch (e) { /* keep direct render fallback */ }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -399,6 +482,7 @@
     //  ANIMATION LOOP
     // ══════════════════════════════════════════════════════════════════════════
     const clock = new THREE.Clock();
+    let firstFrame = true;
 
     (function animate() {
       requestAnimationFrame(animate);
@@ -409,12 +493,12 @@
       const breathe = b1 * 0.68 + b2 * 0.32;
 
       // Breathing crystal light
-      crystalLight.intensity = (isMobile ? 6 : 2.2) + breathe * (isMobile ? 14 : 7.5);
+      crystalLight.intensity = (isMobile ? 12 : 2.2) + breathe * (isMobile ? 22 : 7.5);
       crystalLight.color.setHSL(0.76 + Math.sin(t * 0.087) * 0.042, 0.95, 0.64);
 
       // Material pulse
       if (isMobile) {
-        amethystMat.emissiveIntensity = 0.8 + breathe * 0.8;
+        amethystMat.emissiveIntensity = 1.4 + breathe * 1.2;
       } else {
         amethystMat.emissiveIntensity = 0.10 + breathe * 0.62;
         if (bloom) bloom.strength = 0.40 + breathe * 0.65;
@@ -424,7 +508,11 @@
       cluster.position.y = 1.25 + Math.sin(t * 0.310) * 0.065;
 
       // Corona pulse
-      if (!isMobile) coronaMat.opacity = 0.015 + breathe * 0.095;
+      if (!isMobile) {
+        coronaMat.opacity = 0.015 + breathe * 0.095;
+      } else {
+        coronaMat.opacity = 0.30 + breathe * 0.25;
+      }
 
       // Particle sway
       const posArr = pGeo.attributes.position.array;
@@ -444,6 +532,12 @@
 
       controls.update();
       renderScene();
+
+      // Mark WebGL as working after first successful frame
+      if (firstFrame) {
+        firstFrame = false;
+        window.__markWebGLOk();
+      }
     })();
   </script>
 </body>
